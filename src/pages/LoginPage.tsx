@@ -29,6 +29,7 @@ export default function LoginPage() {
 
       if (data.success) {
         localStorage.setItem('zpay_session', JSON.stringify({ phone, type: type || 'customer' }));
+        localStorage.setItem('zpay_user', JSON.stringify(data.user));
         navigate(type === 'merchant' ? '/merchant' : '/customer');
       } else {
         setError(data.message || 'This number is not registered');

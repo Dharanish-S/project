@@ -1,5 +1,5 @@
 {
-  "name": "",
-  "description": "",
-  "requestFramePermissions": []
+  "name": "ZPay Offline Payments",
+  "description": "An offline-first mobile payment application that allows users to make transactions via SMS when internet connectivity is unavailable.",
+  "requestFramePermissions": ["camera"]
 }

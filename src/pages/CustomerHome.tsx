@@ -1,73 +1,93 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, Search, Wallet, QrCode, Users, Building, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { Menu, Search, Wallet, QrCode, Users, Building, ArrowDownLeft, ArrowUpRight, RefreshCw } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
+import QRScanner from '../components/QRScanner';
 import { User, Transaction } from '../types';
 import { io } from 'socket.io-client';
 
 export default function CustomerHome() {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchUserData = useCallback(async () => {
-    const session = localStorage.getItem('zpay_session');
-    if (!session) return;
-    const { phone } = JSON.parse(session);
-
-    // Load from cache first
-    const cachedUser = localStorage.getItem(`zpay_user_${phone}`);
-    const cachedTransactions = localStorage.getItem(`zpay_tx_${phone}`);
-    
-    if (cachedUser) setUser(JSON.parse(cachedUser));
-    if (cachedTransactions) setTransactions(JSON.parse(cachedTransactions));
-
+  const fetchTransactions = async (phone: string) => {
+    if (!phone) return;
     try {
-      const res = await fetch(`/api/user/${phone}?t=${Date.now()}`);
+      const res = await fetch(`/api/transactions/${encodeURIComponent(phone)}`);
+      if (!res.ok) return;
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await res.json();
+        if (data.success) {
+          setTransactions(data.transactions);
+          localStorage.setItem(`zpay_txs_${phone}`, JSON.stringify(data.transactions));
+        }
+      }
+    } catch (err) {
+      // Silently fail
+    }
+  };
+
+  const fetchUserData = async (phone: string) => {
+    try {
+      if (!phone) return;
+      const res = await fetch(`/api/user/${encodeURIComponent(phone)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
           setUser(data.user);
-          localStorage.setItem(`zpay_user_${phone}`, JSON.stringify(data.user));
+          localStorage.setItem('zpay_user', JSON.stringify(data.user));
         }
       }
-      
-      const txRes = await fetch(`/api/transactions/${phone}?t=${Date.now()}`);
-      if (txRes.ok) {
-        const txData = await txRes.json();
-        if (txData.success) {
-          setTransactions(txData.transactions);
-          localStorage.setItem(`zpay_tx_${phone}`, JSON.stringify(txData.transactions));
-        }
-      }
+      fetchTransactions(phone);
     } catch (err) {
-      console.error('Server sync failed:', err);
+      // Ignore
     }
-  }, []);
+  };
 
   useEffect(() => {
-    const session = localStorage.getItem('zpay_session');
-    if (!session) {
+    const storedUser = localStorage.getItem('zpay_user');
+    if (!storedUser) {
       navigate('/');
       return;
     }
+    
+    const parsedUser = JSON.parse(storedUser);
+    setUser(parsedUser);
 
-    const { phone } = JSON.parse(session);
     const socket = io();
-
     socket.on('connect', () => {
-      socket.emit('register', phone);
+      console.log('Connected to server via Socket.io');
+      socket.emit('register', parsedUser.phone);
     });
 
-    socket.on('transaction_updated', fetchUserData);
+    socket.on('transaction_updated', () => {
+      console.log('Transaction update received via socket!');
+      fetchUserData(parsedUser.phone);
+    });
 
-    fetchUserData();
+    // Initial fetch
+    fetchUserData(parsedUser.phone);
+
+    // Polling as fallback
+    const interval = setInterval(() => fetchUserData(parsedUser.phone), 10000);
 
     return () => {
       socket.disconnect();
+      clearInterval(interval);
     };
-  }, [navigate, fetchUserData]);
+  }, [navigate]);
+
+  const handleManualRefresh = async () => {
+    if (!user) return;
+    setIsRefreshing(true);
+    await fetchUserData(user.phone);
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -88,12 +108,30 @@ export default function CustomerHome() {
           </button>
           <h1 className="text-xl font-bold tracking-tight">ZPay</h1>
         </div>
-        <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center font-bold text-lg border-2 border-indigo-400">
-          {user?.name.charAt(0).toUpperCase()}
+        <div className="flex items-center">
+          <button
+            onClick={handleManualRefresh}
+            className={`p-2 mr-2 hover:bg-indigo-700 rounded-full transition-colors ${isRefreshing ? 'animate-spin' : ''}`}
+          >
+            <RefreshCw className="w-5 h-5" />
+          </button>
+          <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center font-bold text-lg border-2 border-indigo-400">
+            {user?.name.charAt(0).toUpperCase()}
+          </div>
         </div>
       </header>
 
       <main className="flex-1 p-4 space-y-6">
+        {isScanning && (
+          <QRScanner
+            onScan={(text) => {
+              setIsScanning(false);
+              // Assuming the QR code contains the merchant's phone number
+              navigate('/customer/pay/flow', { state: { prefillPhone: text } });
+            }}
+            onClose={() => setIsScanning(false)}
+          />
+        )}
         <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-5 w-5 text-gray-400" />
@@ -102,37 +140,51 @@ export default function CustomerHome() {
             type="text"
             className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm shadow-sm"
             placeholder="Search contacts, businesses..."
-            onClick={() => alert('Search is just for show')}
+            onClick={() => console.log('Search is just for show')}
           />
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">Transfer Money</h2>
+          <div className="grid grid-cols-4 gap-4">
             <button
               onClick={() => navigate('/customer/pay')}
-              className="flex items-center p-4 bg-indigo-50 rounded-2xl group hover:bg-indigo-100 transition-colors"
+              className="flex flex-col items-center justify-center space-y-2 group"
             >
-              <div className="w-12 h-12 bg-indigo-600 text-white rounded-xl flex items-center justify-center mr-4">
-                <Wallet className="w-6 h-6" />
+              <div className="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
+                <Wallet className="w-7 h-7" />
               </div>
-              <div className="text-left">
-                <p className="text-sm font-bold text-gray-900">Pay by Wallet</p>
-                <p className="text-xs text-gray-500">Fast & Secure</p>
-              </div>
+              <span className="text-xs font-semibold text-gray-700 text-center">Pay by Wallet</span>
             </button>
 
             <button
-              onClick={() => alert('Feature coming soon')}
-              className="flex items-center p-4 bg-green-50 rounded-2xl group hover:bg-green-100 transition-colors"
+              onClick={() => setIsScanning(true)}
+              className="flex flex-col items-center justify-center space-y-2 group"
             >
-              <div className="w-12 h-12 bg-green-600 text-white rounded-xl flex items-center justify-center mr-4">
-                <QrCode className="w-6 h-6" />
+              <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                <QrCode className="w-7 h-7" />
               </div>
-              <div className="text-left">
-                <p className="text-sm font-bold text-gray-900">Scan QR</p>
-                <p className="text-xs text-gray-500">Pay Merchants</p>
+              <span className="text-xs font-semibold text-gray-700 text-center">Scan QR</span>
+            </button>
+
+            <button
+              onClick={() => console.log('Anyone is just for show')}
+              className="flex flex-col items-center justify-center space-y-2 group"
+            >
+              <div className="w-14 h-14 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center group-hover:bg-green-200 transition-colors">
+                <Users className="w-7 h-7" />
               </div>
+              <span className="text-xs font-semibold text-gray-700 text-center">Anyone</span>
+            </button>
+
+            <button
+              onClick={() => console.log('Bank Transfer is just for show')}
+              className="flex flex-col items-center justify-center space-y-2 group"
+            >
+              <div className="w-14 h-14 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+                <Building className="w-7 h-7" />
+              </div>
+              <span className="text-xs font-semibold text-gray-700 text-center">Bank Transfer</span>
             </button>
           </div>
         </div>
@@ -160,9 +212,11 @@ export default function CustomerHome() {
                         <p className="text-sm font-semibold text-gray-900">
                           {isReceived ? `From ${tx.sender_phone}` : `To ${tx.receiver_phone}`}
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {new Date(tx.timestamp).toLocaleString()}
-                        </p>
+                        <div className="flex items-center space-x-2 mt-0.5">
+                          <p className="text-xs text-gray-500">
+                            {new Date(tx.timestamp).toLocaleString()}
+                          </p>
+                        </div>
                       </div>
                     </div>
                     <div className={`text-base font-bold ${isReceived ? 'text-green-600' : 'text-gray-900'}`}>

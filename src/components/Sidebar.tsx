@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User } from '../types';
-import { X, LogOut, User as UserIcon, Wallet, Download, MessageSquare, Loader2, CheckCircle2 } from 'lucide-react';
+import { X, LogOut, User as UserIcon, Wallet, Download, MessageSquare, Loader2, CheckCircle2, Server } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface SidebarProps {
@@ -53,25 +53,30 @@ export default function Sidebar({ isOpen, onClose, user, type }: SidebarProps) {
 
   const handleProcessSms = async (tx: any, index: number) => {
     if (!navigator.onLine) {
-      alert('The SMS Gateway Simulator needs internet to reach the Main Server.');
+      console.error('The SMS Gateway Simulator needs internet to reach the Main Server.');
       return;
     }
 
     setIsProcessing(tx.timestamp);
     try {
-      const smsBody = `ZPAY ${tx.receiver_phone} ${tx.amount} ${tx.pin}`;
-      const res = await fetch('/api/simulate-sms', {
+      const gatewayPayload = {
+        sender: tx.sender_phone,
+        message: `PAY ${tx.sender_phone} ${tx.amount} ${tx.receiver_phone} ${tx.pin}`
+      };
+
+      // Send to our backend proxy, which will forward it to the external SMS Gateway
+      const res = await fetch('/api/send-to-gateway', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender_phone: tx.sender_phone,
-          sms_body: smsBody,
-          timestamp: tx.timestamp
-        }),
+        body: JSON.stringify(gatewayPayload),
       });
       
-      const data = await res.json();
-      if (data.success) {
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Invalid response from gateway");
+      }
+      
+      if (res.ok) {
         // Remove from pending
         const pending = JSON.parse(localStorage.getItem('zpay_pending_tx') || '[]');
         const updated = pending.filter((_: any, i: number) => i !== index);
@@ -83,10 +88,10 @@ export default function Sidebar({ isOpen, onClose, user, type }: SidebarProps) {
           // Note: The parent component will refresh balance via its own interval
         }
       } else {
-        alert(data.message || 'Gateway failed to process SMS');
+        console.error('Gateway failed to process SMS');
       }
     } catch (err) {
-      alert('Network error reaching Main Server');
+      console.error('Network error reaching Main Server');
     } finally {
       setIsProcessing(null);
     }
@@ -141,6 +146,7 @@ export default function Sidebar({ isOpen, onClose, user, type }: SidebarProps) {
               <Download className="mr-4 h-6 w-6 text-green-500" />
               Add to Home Screen
             </button>
+
           </nav>
         </div>
         <div className="flex-shrink-0 flex border-t border-gray-200 p-4">

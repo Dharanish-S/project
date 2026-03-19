@@ -29,7 +29,7 @@ export default function LandingPage() {
 
   const handleInstall = async () => {
     if (!deferredPrompt) {
-      alert('Please use your browser menu (3 dots or Share) to "Install App" or "Add to Home Screen".');
+      console.log('Please use your browser menu (3 dots or Share) to "Install App" or "Add to Home Screen".');
       return;
     }
     deferredPrompt.prompt();
@@ -62,6 +62,12 @@ export default function LandingPage() {
           className="w-full py-4 px-6 bg-white border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 rounded-xl font-semibold text-lg transition-colors shadow-sm"
         >
           Merchant App
+        </button>
+        <button
+          onClick={() => navigate('/admin/sms-gateway')}
+          className="w-full py-4 px-6 bg-gray-800 hover:bg-gray-900 text-white rounded-xl font-semibold text-lg transition-colors shadow-sm"
+        >
+          SMS Gateway Dashboard
         </button>
 
         {showInstallBtn ? (

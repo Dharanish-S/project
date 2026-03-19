@@ -10,6 +10,8 @@ import CustomerHome from './pages/CustomerHome';
 import MerchantHome from './pages/MerchantHome';
 import PayByWallet from './pages/PayByWallet';
 import PaymentFlow from './pages/PaymentFlow';
+import GatewayTest from './pages/GatewayTest';
+import SmsGateway from './pages/SmsGateway';
 
 export default function App() {
   return (
@@ -22,6 +24,8 @@ export default function App() {
           <Route path="/merchant" element={<MerchantHome />} />
           <Route path="/customer/pay" element={<PayByWallet />} />
           <Route path="/customer/pay/flow" element={<PaymentFlow />} />
+          <Route path="/admin/gateway-test" element={<GatewayTest />} />
+          <Route path="/admin/sms-gateway" element={<SmsGateway />} />
         </Routes>
       </div>
     </Router>
